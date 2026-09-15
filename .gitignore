@@ -1,0 +1,12 @@
+.cgv-profile/
+.cgv-diagnostics/
+__pycache__/
+.vs/
+.venv/
+*.log
+state.json
+.push-private.pem
+.push-private-key.txt
+.cgv-cloud-check/
+.push-subscription.json
+.env

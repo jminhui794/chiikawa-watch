@@ -1,0 +1,11 @@
+{
+  "id": "./",
+  "name": "치이카와 표 알림",
+  "short_name": "치이카와 알림",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fff5eb",
+  "theme_color": "#fff5eb"
+}

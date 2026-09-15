@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: chiikawa-alerts
+    runtime: static
+    buildCommand: echo Static web app
+    staticPublishPath: ./web
+    headers:
+      - path: /sw.js
+        name: Cache-Control
+        value: no-cache

@@ -1,0 +1,66 @@
+name: Cinema alerts
+on:
+  workflow_dispatch:
+    inputs:
+      test_push:
+        description: Send a labelled phone notification test
+        type: boolean
+        default: false
+  schedule:
+    - cron: '2-57/5 * * * *'
+permissions:
+  contents: write
+concurrency:
+  group: cinema-watch
+  cancel-in-progress: false
+jobs:
+  watch:
+    # Standard runners in public repositories are free. Never run this in private repos.
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      TZ: Asia/Seoul
+      CHROME_CHANNEL: chromium
+      CGV_PROFILE: /tmp/chiikawa-cgv
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check configured monitoring dates
+        id: dates
+        env:
+          TEST_PUSH: ${{ inputs.test_push }}
+        run: |
+          python - <<'PY'
+          import datetime, json, os
+          dates = json.load(open('config.json'))['watch_dates']
+          active = max(dates) >= datetime.datetime.now().strftime('%Y%m%d') or os.environ['TEST_PUSH'] == 'true'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f"active={str(active).lower()}\n")
+          PY
+      - uses: actions/setup-python@v5
+        if: steps.dates.outputs.active == 'true'
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-cloud.txt
+      - name: Install dependencies
+        if: steps.dates.outputs.active == 'true'
+        run: |
+          pip install -r requirements-cloud.txt
+          python -m playwright install --with-deps chromium
+      - name: Scan and send notifications
+        if: steps.dates.outputs.active == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          TEST_PUSH: ${{ inputs.test_push }}
+        run: |
+          if [ "$TEST_PUSH" = "true" ]; then
+            python cloud_watch.py --test-push
+          else
+            xvfb-run -a python cloud_watch.py
+          fi
