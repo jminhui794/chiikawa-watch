@@ -90,4 +90,11 @@ if __name__ == "__main__":
         print(f"Cloud scan failed: {type(error).__name__}", file=sys.stderr)
         if isinstance(error, (RuntimeError, ValueError)):
             print(str(error)[:180], file=sys.stderr)
+        # Make a blocked/failed scan visible on the phone instead of silently stopping.
+        try:
+            if all(os.environ.get(name) for name in ("PUSH_SUBSCRIPTION", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT")):
+                send_push("치이카와 감시 오류", "영화관 사이트 조회가 실패했습니다. 다음 실행에서 다시 시도합니다.",
+                          "https://chiikawa-alerts.onrender.com", "chiikawa-error")
+        except Exception:
+            pass
         sys.exit(1)
