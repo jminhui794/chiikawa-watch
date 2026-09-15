@@ -30,22 +30,25 @@ def github(method="GET", payload=None):
 
 def send_push(title, body, url, tag):
     from pywebpush import webpush, WebPushException
-    subscription = json.loads(os.environ["PUSH_SUBSCRIPTION"])
-    endpoint = urlsplit(subscription["endpoint"])
-    host = endpoint.hostname or ""
-    if endpoint.scheme != "https" or not (
-            host == "web.push.apple.com" or host.endswith(".push.apple.com")
-            or host == "fcm.googleapis.com" or host.endswith(".push.services.mozilla.com")):
-        raise ValueError("Unsupported push endpoint")
-    try:
-        webpush(subscription_info=subscription,
-                data=json.dumps({"title": title, "body": body, "url": url, "tag": tag}, ensure_ascii=False),
-                vapid_private_key=os.environ["VAPID_PRIVATE_KEY"],
-                vapid_claims={"sub": os.environ["VAPID_SUBJECT"]},
-                ttl=300, timeout=30)
-    except WebPushException as error:
-        code = error.response.status_code if error.response is not None else "network"
-        raise RuntimeError(f"Push failed ({code}); baseline was not advanced") from None
+    subscriptions = json.loads(os.environ["PUSH_SUBSCRIPTION"])
+    if isinstance(subscriptions, dict):
+        subscriptions = [subscriptions]
+    for subscription in subscriptions:
+        endpoint = urlsplit(subscription["endpoint"])
+        host = endpoint.hostname or ""
+        if endpoint.scheme != "https" or not (
+                host == "web.push.apple.com" or host.endswith(".push.apple.com")
+                or host == "fcm.googleapis.com" or host.endswith(".push.services.mozilla.com")):
+            raise ValueError("Unsupported push endpoint")
+        try:
+            webpush(subscription_info=subscription,
+                    data=json.dumps({"title": title, "body": body, "url": url, "tag": tag}, ensure_ascii=False),
+                    vapid_private_key=os.environ["VAPID_PRIVATE_KEY"],
+                    vapid_claims={"sub": os.environ["VAPID_SUBJECT"]},
+                    ttl=300, timeout=30)
+        except WebPushException as error:
+            code = error.response.status_code if error.response is not None else "network"
+            raise RuntimeError(f"Push failed ({code}); baseline was not advanced") from None
 
 
 def run():
