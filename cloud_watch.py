@@ -69,7 +69,8 @@ def run():
         if hits:
             for subscription in json.loads(os.environ["PUSH_SUBSCRIPTION"] if os.environ["PUSH_SUBSCRIPTION"].lstrip().startswith("[") else "[" + os.environ["PUSH_SUBSCRIPTION"] + "]"):
                 selected = subscription.get("theaters") or []
-                filtered = [hit for hit in hits if not selected or any(hit[0].startswith(s + " ") for s in selected)]
+                dates = subscription.get("dates") or []
+                filtered = [hit for hit in hits if (not selected or any(hit[0].startswith(s + " ") for s in selected)) and (not dates or any(date in hit[0] for date in dates))]
                 if filtered:
                     send_push(title, "\n".join(hit[0] for hit in filtered[:6]), filtered[0][2], tag, target=subscription)
     encoded = base64.b64encode(json.dumps(current, ensure_ascii=False).encode()).decode()

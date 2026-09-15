@@ -65,6 +65,8 @@ button.addEventListener('click', async () => {
     const selectedTheaters = [...theaterList.querySelectorAll('label:not(.brand-all) input:checked')].map(input => input.value);
     const registrationData = subscription.toJSON();
     registrationData.theaters = allTheaters.checked ? [] : selectedTheaters;
+    // New devices default to the currently requested September 30 screening.
+    registrationData.dates = ['20260930'];
     document.getElementById('code').value = JSON.stringify(registrationData);
     document.getElementById('registration').hidden = false;
     statusText.textContent = '알림 권한 허용 완료 · 서버에 기기 등록 필요';
