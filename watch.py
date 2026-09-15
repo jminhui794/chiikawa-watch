@@ -111,7 +111,7 @@ def lotte(pg, out):
       fd.append('paramList', JSON.stringify({MethodName:'GetPlaySequence',channelType:'HO',
         osType:'W',osVersion:'Chrome',playDate:d,cinemaID:cid,representationMovieCode:''}));
       const r = await fetch('https://www.lottecinema.co.kr/LCWS/Ticketing/TicketingData.aspx',
-        {method:'POST', body:fd});
+        {method:'POST', body:fd, signal: AbortSignal.timeout(20000)});
       return await r.text();
     }"""
     for cid, nm in CFG["lotte"]["cinemas"].items():
