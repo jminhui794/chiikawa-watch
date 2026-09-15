@@ -28,9 +28,9 @@ def github(method="GET", payload=None):
         raise RuntimeError(f"GitHub state {method} failed: HTTP {error.code}") from None
 
 
-def send_push(title, body, url, tag):
+def send_push(title, body, url, tag, target=None):
     from pywebpush import webpush, WebPushException
-    subscriptions = json.loads(os.environ["PUSH_SUBSCRIPTION"])
+    subscriptions = [target] if target is not None else json.loads(os.environ["PUSH_SUBSCRIPTION"])
     if isinstance(subscriptions, dict):
         subscriptions = [subscriptions]
     for subscription in subscriptions:
@@ -67,7 +67,11 @@ def run():
     for title, hits, tag in (("치이카와 새 회차 오픈", openings, "chiikawa-open"),
                              ("치이카와 취소표 발생", cancellations, "chiikawa-seats")):
         if hits:
-            send_push(title, "\n".join(hit[0] for hit in hits[:6]), hits[0][2], tag)
+            for subscription in json.loads(os.environ["PUSH_SUBSCRIPTION"] if os.environ["PUSH_SUBSCRIPTION"].lstrip().startswith("[") else "[" + os.environ["PUSH_SUBSCRIPTION"] + "]"):
+                selected = subscription.get("theaters") or []
+                filtered = [hit for hit in hits if not selected or any(hit[0].startswith(s + " ") for s in selected)]
+                if filtered:
+                    send_push(title, "\n".join(hit[0] for hit in filtered[:6]), filtered[0][2], tag, target=subscription)
     encoded = base64.b64encode(json.dumps(current, ensure_ascii=False).encode()).decode()
     if current != previous or saved is None:
         payload = {"message": "Update cinema availability", "content": encoded}
