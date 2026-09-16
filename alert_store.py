@@ -54,6 +54,8 @@ def notification(title, body, url, tag, subscription, primary):
 def enqueue_result(document, result, subscriptions, changes, filter_hits):
     previous = {key: value for key, value in document["schedules"].items() if key.startswith(result.brand + "|")}
     openings, cancellations = changes(previous, result.schedules)
+    if result.brand == "씨네큐" and any("|-|상영예정|-" in key for key in previous):
+        openings, cancellations = [], []  # Replace the old menu-based baseline once.
     for title, hits, tag in (("치이카와 새 회차 오픈", openings, "chiikawa-open"),
                              ("치이카와 취소표 발생", cancellations, "chiikawa-seats")):
         for index, subscription in enumerate(subscriptions):

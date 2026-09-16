@@ -58,7 +58,7 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('requirements-cloud.txt') }}
       - name: Verify alert recovery
         if: steps.dates.outputs.active == 'true'
-        run: python -m unittest -q test_watch test_cloud_watch test_desktop_alerts test_alert_store test_cinema_scan
+        run: python -m unittest -q test_watch test_cloud_watch test_desktop_alerts test_alert_store test_cinema_scan test_cinema_accuracy
       - name: Install browser
         if: steps.dates.outputs.active == 'true' && inputs.test_push != true
         run: |

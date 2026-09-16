@@ -1,5 +1,6 @@
 """Independent cinema scans with bounded requests and per-scope recovery."""
 import json
+import datetime
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -79,7 +80,7 @@ def jobs_for(brand):
                 params = dict(MethodName="GetPlaySequence", channelType="HO", osType="W",
                               osVersion="Chrome", playDate=f"{date[:4]}-{date[4:6]}-{date[6:]}",
                               cinemaID=cinema, representationMovieCode="")
-                jobs.append(dict(scope=f"롯데|{name}|{date}|", name=name, date=date,
+                jobs.append(dict(scope=f"롯데|{name}|{date}|", name=name, date=date, cinema=cinema.split("|")[-1],
                                  url="/LCWS/Ticketing/TicketingData.aspx", method="POST",
                                  form={"paramList": json.dumps(params)}))
     elif brand == "메가박스":
@@ -90,6 +91,12 @@ def jobs_for(brand):
                              url="/on/oh/ohb/SimpleBooking/selectBokdList.do", method="POST",
                              headers={"Content-Type": "application/json;charset=UTF-8",
                                       "X-Requested-With": "XMLHttpRequest"}, body=json.dumps(params)))
+    elif brand == "씨네큐":
+        for code, name in watch.CFG["cineq"]["theaters"].items():
+            for date in watch.DATES:
+                jobs.append(dict(scope=f"씨네큐|{name}|{date}|", name=name, date=date,
+                    url="/popup/ReserveScreenPlan", method="POST", form={"theaterCode": code,
+                    "playDate": date, "movieCode": watch.CFG["cineq"]["MovieCode"]}))
     return jobs
 
 
@@ -98,6 +105,9 @@ def parse(brand, job, response):
         raise ValueError(response["error"])
     if response.get("s") != 200:
         raise ValueError(f"HTTP {response.get('s')}")
+    if brand == "씨네큐":
+        from cineq_parser import parse_timetable
+        return parse_timetable(response["b"], job, watch.KEY, URLS[brand])
     data = json.loads(response["b"])
     if not isinstance(data, dict):
         raise ValueError("response is not an object")
@@ -115,11 +125,22 @@ def parse(brand, job, response):
                 raise ValueError("invalid Lotte schedule")
             if watch.KEY not in str(item["MovieNameKR"]):
                 continue
-            total, booked = int(item["TotalSeatCount"]), int(item["BookingSeatCount"])
-            if not 0 <= booked <= total or not item.get("StartTime") or not item.get("ScreenNameKR"):
+            if str(item.get("RepresentationMovieCode")) != watch.CFG["lotte"]["movieNo"]:
+                raise ValueError("Lotte movie identity mismatch")
+            if str(item.get("CinemaID")) != job["cinema"] or item.get("PlayDt", "").replace("-", "") != job["date"]:
+                raise ValueError("Lotte date/cinema mismatch")
+            total, left = int(item["TotalSeatCount"]), int(item["BookingSeatCount"])
+            status = item.get("IsBookingYN")
+            if status not in ("Y", "N", "E", "J"):
+                raise ValueError("Unknown Lotte booking status")
+            if not 0 <= left <= total or not item.get("StartTime") or not item.get("ScreenNameKR"):
                 raise ValueError("invalid Lotte seats/time")
+            if status == "E":
+                left = 0  # Official UI: E=sold out, N=booking closed, J=preparing.
+            starts = datetime.datetime.strptime(job["date"] + item["StartTime"], "%Y%m%d%H:%M")
             result[job["scope"] + f"{item['StartTime']}|{item['ScreenNameKR']}"] = {
-                "left": total - booked, "total": total, "url": URLS[brand]}
+                "left": left, "total": total, "url": URLS[brand],
+                "opened": status in ("Y", "E") and starts > datetime.datetime.now(), "seat_semantics": "remaining-v2"}
     elif brand == "메가박스":
         if data.get("statCd") != 0 or data.get("paramMap", {}).get("playDe") != job["date"]:
             raise ValueError("Megabox failed or returned a different date")
@@ -170,16 +191,8 @@ def scan_brand(brand, previous):
                 body = page.locator("body").inner_text(timeout=8000)
                 if "이용이 제한" in body or "RAY_ID" in body:
                     raise ValueError("access restricted")
-                if brand == "씨네큐":
-                    page.wait_for_function("key => document.body.innerText.includes(key)", arg=watch.KEY, timeout=8000)
-                    html = page.content()
-                    current = {f"씨네큐|{name}|-|상영예정|-": {"left": None, "total": None, "url": URLS[brand]}
-                               for code, name in watch.CFG["cineq"]["theaters"].items()
-                               if name in html or f"TheaterCode={code}" in html}
-                    result = Result(brand, current, [], requests=1)
-                else:
-                    responses = page.evaluate(BATCH_JS, dict(jobs=jobs, concurrency=4, timeout=8000, budget=120000))
-                    result = merge_responses(brand, jobs, responses, baseline)
+                responses = page.evaluate(BATCH_JS, dict(jobs=jobs, concurrency=4, timeout=8000, budget=120000))
+                result = merge_responses(brand, jobs, responses, baseline)
             finally:
                 context.close()
                 if browser:

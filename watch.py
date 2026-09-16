@@ -80,61 +80,6 @@ def toast(title, lines, url=None, actions=None):
     return True
 
 
-def megabox(pg, out):
-    """메가박스 - selectBokdList.do(검증된 엔드포인트)로 날짜별 편성 여부 감지.
-    회차별 잔여좌석은 제공되지 않아 '해당 날짜 편성 시작'만 잡는다."""
-    js = """async ({ymd, mov}) => {
-      const r = await fetch('https://www.megabox.co.kr/on/oh/ohb/SimpleBooking/selectBokdList.do',
-        {method:'POST', headers:{'Content-Type':'application/json;charset=UTF-8',
-         'X-Requested-With':'XMLHttpRequest'},
-         body: JSON.stringify({playDe:ymd, incomeMovieNo:mov, onLoad:'N', sellChnlCd:'',
-                               incomeTheabKindCd:'', incomeBrchNo1:'', incomePlayDe:ymd})});
-      return await r.text();
-    }"""
-    mov = CFG["megabox"]["movieNo"]
-    for ymd in DATES:
-        try:
-            txt = pg.evaluate(js, {"ymd": ymd, "mov": mov})
-            if txt.lstrip().startswith("<"):
-                continue
-            d = json.loads(txt)
-        except Exception:
-            continue
-        hit = (d.get("statCd") == 0 and d.get("paramMap", {}).get("playDe") == ymd
-               and any(str(m.get("movieNo")) == mov and m.get("formAt") == "Y"
-                       for m in (d.get("movieList") or [])))
-        if hit:
-            out[f"메가박스|(전지점)|{ymd}|편성됨|-"] = {
-                "left": None, "total": None,
-                "url": "https://www.megabox.co.kr/booking"}
-
-
-def lotte(pg, out):
-    js = """async ({cid, ymd}) => {
-      const d = ymd.slice(0,4)+'-'+ymd.slice(4,6)+'-'+ymd.slice(6,8);
-      const fd = new FormData();
-      fd.append('paramList', JSON.stringify({MethodName:'GetPlaySequence',channelType:'HO',
-        osType:'W',osVersion:'Chrome',playDate:d,cinemaID:cid,representationMovieCode:''}));
-      const r = await fetch('https://www.lottecinema.co.kr/LCWS/Ticketing/TicketingData.aspx',
-        {method:'POST', body:fd, signal: AbortSignal.timeout(20000)});
-      return await r.text();
-    }"""
-    for cid, nm in CFG["lotte"]["cinemas"].items():
-        for ymd in DATES:
-            try:
-                d = json.loads(pg.evaluate(js, {"cid": cid, "ymd": ymd}))
-            except Exception:
-                continue
-            for it in (d.get("PlaySeqs") or {}).get("Items", []):
-                if KEY not in str(it.get("MovieNameKR", "")):
-                    continue
-                total = it.get("TotalSeatCount") or 0
-                book = it.get("BookingSeatCount") or 0
-                out[f"롯데|{nm}|{ymd}|{it.get('StartTime')}|{it.get('ScreenNameKR','')}"] = {
-                    "left": total - book, "total": total,
-                    "url": "https://www.lottecinema.co.kr/NLCHS/Ticketing"}
-
-
 def cgv(pg, out):
     # 다른 영화관 페이지에서 호출하면 CORS 오류와 인증 실패를 구분할 수 없다.
     pg.goto("https://cgv.co.kr/cnm/movieBook/movie",
@@ -213,22 +158,10 @@ def changes(previous, current):
             text += f" (잔여 {left})" if left is not None else ""
             new_sh.append((text, key.split("|")[0], value.get("url")))
         elif isinstance(old.get("left"), int) and isinstance(left, int) and old["left"] == 0 and left > 0:
+            if key.startswith("롯데|") and old.get("seat_semantics") != value.get("seat_semantics"):
+                continue  # Correcting legacy inverted counts is not a cancellation.
             seats.append((text + f" -> 취소표 {left}석!", key.split("|")[0], value.get("url")))
     return new_sh, seats
-
-
-def cineq(pg, out):
-    code = CFG["cineq"]["MovieCode"]
-    url = f"https://www.cineq.co.kr/Movie/Info?MovieCode={code}"
-    try:
-        pg.goto(url, wait_until="domcontentloaded", timeout=45000)
-        pg.wait_for_timeout(2500)
-        html = pg.content()
-        for tcode, nm in CFG["cineq"]["theaters"].items():
-            if nm in html or f"TheaterCode={tcode}" in html:
-                out[f"씨네큐|{nm}|-|상영예정|-"] = {"left": None, "total": None, "url": url}
-    except Exception as e:
-        print("  [씨네큐 실패]", str(e)[:70])
 
 
 def cgv_context(playwright):

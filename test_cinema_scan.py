@@ -16,11 +16,13 @@ class ScopeRecoveryTests(unittest.TestCase):
         self.assertEqual(len(cinema_scan.jobs_for("메가박스")), len(watch.DATES))
 
     def test_failed_scope_keeps_sold_out_baseline_while_other_scope_updates(self):
-        jobs = [{"scope": "롯데|A|20990919|"}, {"scope": "롯데|B|20990919|"}]
-        previous = {jobs[0]["scope"] + "12:00|1관": {"left": 0},
-                    jobs[1]["scope"] + "12:00|1관": {"left": 0}}
+        jobs = [{"scope": "롯데|A|20990919|", "cinema": "1004", "date": "20990919"},
+                {"scope": "롯데|B|20990919|", "cinema": "1004", "date": "20990919"}]
+        previous = {jobs[0]["scope"] + "12:00|1관": {"left": 0, "seat_semantics": "remaining-v2"},
+                    jobs[1]["scope"] + "12:00|1관": {"left": 0, "seat_semantics": "remaining-v2"}}
         good = {"s": 200, "b": json.dumps({"PlaySeqs": {"Items": [{"MovieNameKR": "치이카와",
-            "TotalSeatCount": 100, "BookingSeatCount": 99, "StartTime": "12:00", "ScreenNameKR": "1관"}]}})}
+            "RepresentationMovieCode": "24708", "CinemaID": 1004, "PlayDt": "2099-09-19", "IsBookingYN": "Y",
+            "TotalSeatCount": 100, "BookingSeatCount": 1, "StartTime": "12:00", "ScreenNameKR": "1관"}]}})}
         result = cinema_scan.merge_responses("롯데", jobs, [{"error": "TimeoutError"}, good], previous)
         self.assertEqual(result.schedules[jobs[0]["scope"] + "12:00|1관"]["left"], 0)
         self.assertEqual(len(result.errors), 1)
