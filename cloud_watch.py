@@ -51,6 +51,23 @@ def send_push(title, body, url, tag, target=None):
             raise RuntimeError(f"Push failed ({code}); baseline was not advanced") from None
 
 
+def filter_hits(hits, subscription, *, primary_device=False):
+    # The first PUSH_SUBSCRIPTION entry is the primary (original) device.
+    # It receives every monitored screening, ignoring legacy filters.
+    if primary_device:
+        return list(hits)
+    selected = subscription.get("theaters") or []
+    dates = subscription.get("dates") or []
+    prefixes = []
+    for selection in selected:
+        brand, branch = selection.split("|", 1)
+        brand = {"씨네Q": "씨네큐", "롯데시네마": "롯데"}.get(brand, brand)
+        prefixes.append(brand + " " if branch == "전체 지점" else f"{brand} {branch} ")
+    return [hit for hit in hits
+            if (not prefixes or any(hit[0].startswith(prefix) for prefix in prefixes))
+            and (not dates or any(date in hit[0].split() for date in dates))]
+
+
 def run():
     # Missing registration fails loudly, never claims monitoring is active.
     for name in ("PUSH_SUBSCRIPTION", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT"):
@@ -67,10 +84,11 @@ def run():
     for title, hits, tag in (("치이카와 새 회차 오픈", openings, "chiikawa-open"),
                              ("치이카와 취소표 발생", cancellations, "chiikawa-seats")):
         if hits:
-            for subscription in json.loads(os.environ["PUSH_SUBSCRIPTION"] if os.environ["PUSH_SUBSCRIPTION"].lstrip().startswith("[") else "[" + os.environ["PUSH_SUBSCRIPTION"] + "]"):
-                selected = subscription.get("theaters") or []
-                dates = subscription.get("dates") or []
-                filtered = [hit for hit in hits if (not selected or any(hit[0].startswith(s + " ") for s in selected)) and (not dates or any(date in hit[0] for date in dates))]
+            subscriptions = json.loads(os.environ["PUSH_SUBSCRIPTION"])
+            if isinstance(subscriptions, dict):
+                subscriptions = [subscriptions]
+            for index, subscription in enumerate(subscriptions):
+                filtered = filter_hits(hits, subscription, primary_device=index == 0)
                 if filtered:
                     send_push(title, "\n".join(hit[0] for hit in filtered[:6]), filtered[0][2], tag, target=subscription)
     encoded = base64.b64encode(json.dumps(current, ensure_ascii=False).encode()).decode()
