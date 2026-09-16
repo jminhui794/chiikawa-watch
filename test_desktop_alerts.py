@@ -10,6 +10,22 @@ import desktop_alerts
 
 
 class SharedAlertsTests(unittest.TestCase):
+    def test_test_push_publishes_identical_event_without_scanning_or_changing_schedules(self):
+        schedules = {"CGV|example": {"left": 0}}
+        saved = {"sha": "old", "content": base64.b64encode(json.dumps(
+            {"schema": 2, "schedules": schedules, "events": []}).encode()).decode()}
+        with patch.dict(os.environ, {"PUSH_SUBSCRIPTION": '{}', "VAPID_PRIVATE_KEY": "x", "VAPID_SUBJECT": "x"}), \
+                patch.object(cloud_watch.sys, "argv", ["cloud_watch.py", "--test-push"]), \
+                patch.object(cloud_watch, "github", return_value=saved) as github, \
+                patch.object(cloud_watch.watch, "scan") as scan, \
+                patch.object(cloud_watch, "send_push") as push:
+            cloud_watch.run()
+        scan.assert_not_called()
+        document = json.loads(base64.b64decode(github.call_args.args[1]["content"]))
+        self.assertEqual(document["schedules"], schedules)
+        event, = document["events"]
+        self.assertEqual(tuple(event[key] for key in ("title", "body", "url", "tag")), push.call_args.args)
+
     def test_phone_payload_is_delivered_once_to_desktop_after_migration(self):
         old = {"씨네큐|신도림|-|상영예정|-": {"left": None}}
         saved = {"sha": "old", "content": base64.b64encode(json.dumps(old).encode()).decode()}

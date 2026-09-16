@@ -75,16 +75,22 @@ def run():
     for name in ("PUSH_SUBSCRIPTION", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT"):
         if not os.environ.get(name):
             raise ValueError(f"Missing secret: {name}")
-    if "--test-push" in sys.argv:
-        send_push("치이카와 알림 테스트", "아이폰 푸시 연결 확인용입니다. 실제 취소표 알림이 아닙니다.",
-                  "https://cgv.co.kr/cnm/movieBook/movie", "chiikawa-test")
-        return
+    testing = "--test-push" in sys.argv
     saved = github()
     document = json.loads(base64.b64decode(saved["content"])) if saved else {}
     previous = document.get("schedules", {}) if document.get("schema") == 2 else document
     events = list(document.get("events", [])) if document.get("schema") == 2 else []
-    current = watch.scan(previous, strict_cgv=True)
-    openings, cancellations = watch.changes(previous, current)
+    if testing:
+        title = "치이카와 알림 테스트"
+        body = "휴대폰·PC 공통 알림 연결 확인입니다. 실제 새 회차나 취소표 알림이 아닙니다."
+        url = "https://cgv.co.kr/cnm/movieBook/movie"
+        send_push(title, body, url, "chiikawa-test")
+        events.append({"id": uuid.uuid4().hex, "created_at": time.time(),
+                       "title": title, "body": body, "url": url, "tag": "chiikawa-test"})
+        current, openings, cancellations = previous, [], []
+    else:
+        current = watch.scan(previous, strict_cgv=True)
+        openings, cancellations = watch.changes(previous, current)
     for title, hits, tag in (("치이카와 새 회차 오픈", openings, "chiikawa-open"),
                              ("치이카와 취소표 발생", cancellations, "chiikawa-seats")):
         if hits:
