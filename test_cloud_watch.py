@@ -3,6 +3,8 @@ import json
 from unittest.mock import patch
 
 import cloud_watch
+from cinema_scan import Result
+from test_alert_store import MemoryGitHub
 from cloud_watch import filter_hits
 
 
@@ -40,12 +42,13 @@ class SubscriptionFilterTests(unittest.TestCase):
         second = {"endpoint": "second", "dates": ["20260930"]}
         hit = ("CGV 강남 20260919 12:00 1관", "CGV", "https://cgv.co.kr")
         for subscriptions in (first, [first, second]):
+            github = MemoryGitHub()
             with self.subTest(subscriptions=subscriptions), \
                     patch.dict("os.environ", {"PUSH_SUBSCRIPTION": json.dumps(subscriptions),
                                               "VAPID_PRIVATE_KEY": "test", "VAPID_SUBJECT": "test"}), \
                     patch.object(cloud_watch.sys, "argv", ["cloud_watch.py"]), \
-                    patch.object(cloud_watch, "github", return_value=None), \
-                    patch.object(cloud_watch.watch, "scan", return_value={}), \
+                    patch.object(cloud_watch, "github", side_effect=github), \
+                    patch.object(cloud_watch.watch, "scan_iter", return_value=[Result("CGV", {}, [])]), \
                     patch.object(cloud_watch.watch, "changes", return_value=([hit], [hit])), \
                     patch.object(cloud_watch, "send_push") as send:
                 cloud_watch.run()

@@ -1,10 +1,8 @@
 """One scheduled scan; state lives in GitHub, push subscription only in Secrets."""
-import base64
 import json
 import os
 import sys
 import time
-import uuid
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from urllib.parse import urlsplit
@@ -71,49 +69,51 @@ def filter_hits(hits, subscription, *, primary_device=False):
 
 
 def run():
-    # Missing registration fails loudly, never claims monitoring is active.
+    import alert_store
     for name in ("PUSH_SUBSCRIPTION", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT"):
         if not os.environ.get(name):
             raise ValueError(f"Missing secret: {name}")
+    subscriptions = json.loads(os.environ["PUSH_SUBSCRIPTION"])
+    if isinstance(subscriptions, dict):
+        subscriptions = [subscriptions]
+    if not subscriptions:
+        raise ValueError("No registered devices")
     testing = "--test-push" in sys.argv
-    saved = github()
-    document = json.loads(base64.b64decode(saved["content"])) if saved else {}
-    previous = document.get("schedules", {}) if document.get("schema") == 2 else document
-    events = list(document.get("events", [])) if document.get("schema") == 2 else []
     if testing:
-        title = "치이카와 알림 테스트"
-        body = "휴대폰·PC 공통 알림 연결 확인입니다. 실제 새 회차나 취소표 알림이 아닙니다."
-        url = "https://cgv.co.kr/cnm/movieBook/movie"
-        send_push(title, body, url, "chiikawa-test")
-        events.append({"id": uuid.uuid4().hex, "created_at": time.time(),
-                       "title": title, "body": body, "url": url, "tag": "chiikawa-test"})
-        current, openings, cancellations = previous, [], []
-    else:
-        current = watch.scan(previous, strict_cgv=True)
-        openings, cancellations = watch.changes(previous, current)
-    for title, hits, tag in (("치이카와 새 회차 오픈", openings, "chiikawa-open"),
-                             ("치이카와 취소표 발생", cancellations, "chiikawa-seats")):
-        if hits:
-            subscriptions = json.loads(os.environ["PUSH_SUBSCRIPTION"])
-            if isinstance(subscriptions, dict):
-                subscriptions = [subscriptions]
-            for index, subscription in enumerate(subscriptions):
-                filtered = filter_hits(hits, subscription, primary_device=index == 0)
-                if filtered:
-                    body = "\n".join(hit[0] for hit in filtered[:6])
-                    send_push(title, body, filtered[0][2], tag, target=subscription)
-                    if index == 0:
-                        events.append({"id": uuid.uuid4().hex, "created_at": time.time(),
-                                       "title": title, "body": body, "url": filtered[0][2], "tag": tag})
-    events = [event for event in events if event["created_at"] >= time.time() - 7 * 86400][-500:]
-    updated = {"schema": 2, "schedules": current, "events": events}
-    encoded = base64.b64encode(json.dumps(updated, ensure_ascii=False).encode()).decode()
-    if updated != document or saved is None:
-        payload = {"message": "Update cinema availability", "content": encoded}
-        if saved:
-            payload["sha"] = saved["sha"]
-        github("PUT", payload)
-    print(f"Cloud scan complete: {len(current)} schedules, {len(openings)} openings, {len(cancellations)} cancellations")
+        items = [alert_store.notification("???? ?? ???",
+                 "????PC ?? ?? ?? ?????. ?? ? ??? ??? ??? ????.",
+                 "https://cgv.co.kr/cnm/movieBook/movie", "chiikawa-test", subscription, index == 0)
+                 for index, subscription in enumerate(subscriptions)]
+        alert_store.transaction(github, lambda document: document["outbox"].extend(items))
+        errors = alert_store.deliver_pending(github, subscriptions, send_push,
+                                             only_ids={item["id"] for item in items})
+        if errors:
+            raise RuntimeError("Test notification queued for retry: " + "; ".join(errors))
+        print("Test notification sent and published to desktop", flush=True)
+        return
+    initial = alert_store.decode(github())
+    # Concurrent test runs own their new events; a regular scan retries only
+    # previously queued IDs and notifications it creates itself.
+    errors = alert_store.deliver_pending(github, subscriptions, send_push,
+                                         only_ids={item["id"] for item in initial["outbox"]
+                                                   if not item["tag"].startswith("chiikawa-test-")
+                                                   or item["created_at"] < time.time() - 300})
+    failed_brands = []
+    for result in watch.scan_iter(initial["schedules"]):
+        before_ids = set()
+        def enqueue(document):
+            before_ids.clear()
+            before_ids.update(item["id"] for item in document["outbox"])
+            alert_store.enqueue_result(document, result, subscriptions, watch.changes, filter_hits)
+        document = alert_store.transaction(github, enqueue)
+        new_ids = {item["id"] for item in document["outbox"]} - before_ids
+        errors.extend(alert_store.deliver_pending(github, subscriptions, send_push, only_ids=new_ids))
+        if result.errors:
+            failed_brands.append(result.brand)
+        print(f"Published {result.brand}: queued={len(new_ids)}, scan_errors={len(result.errors)}", flush=True)
+    if failed_brands or errors:
+        raise RuntimeError(f"Partial scan: failed cinemas={failed_brands}; pending deliveries={len(errors)}. Previous failed scopes and queued alerts retained.")
+    print("Cloud scan complete: all cinemas checked, queued notifications delivered", flush=True)
 
 
 if __name__ == "__main__":
@@ -124,11 +124,4 @@ if __name__ == "__main__":
         print(f"Cloud scan failed: {type(error).__name__}", file=sys.stderr)
         if isinstance(error, (RuntimeError, ValueError)):
             print(str(error)[:180], file=sys.stderr)
-        # Make a blocked/failed scan visible on the phone instead of silently stopping.
-        try:
-            if all(os.environ.get(name) for name in ("PUSH_SUBSCRIPTION", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT")):
-                send_push("치이카와 감시 오류", "영화관 사이트 조회가 실패했습니다. 다음 실행에서 다시 시도합니다.",
-                          "https://chiikawa-alerts.onrender.com", "chiikawa-error")
-        except Exception:
-            pass
         sys.exit(1)

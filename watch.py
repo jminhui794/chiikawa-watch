@@ -244,39 +244,18 @@ def cgv_context(playwright):
     return context
 
 
+def scan_iter(previous=None):
+    from cinema_scan import scan_iter as parallel_scan
+    return parallel_scan(previous or {})
+
+
 def scan(previous=None, strict_cgv=False):
-    out = {}
-    with sync_playwright() as p:
-        br = p.chromium.launch(channel=CHROME_CHANNEL, headless=True)
-        pg = br.new_context(locale="ko-KR", user_agent=UA).new_page()
-        for url in ("https://www.megabox.co.kr/booking",
-                    "https://www.lottecinema.co.kr/NLCHS/Ticketing"):
-            try:
-                pg.goto(url, wait_until="domcontentloaded", timeout=45000)
-                pg.wait_for_timeout(2000)
-            except Exception:
-                pass
-        for fn in (megabox, lotte, cgv, cineq):
-            try:
-                if fn is cgv:
-                    context = cgv_context(p)
-                    try:
-                        cgv(context.pages[0] if context.pages else context.new_page(), out)
-                    finally:
-                        context.close()
-                else:
-                    fn(pg, out)
-            except Exception as e:
-                print(f"  [{fn.__name__} 오류]", str(e)[:80])
-                if fn is cgv:
-                    out.update({k: v for k, v in (previous or {}).items()
-                                if k.startswith("CGV|")})
-                    print("  [CGV] 이번 조회 실패 - 이전 기록 유지, 감시 성공 아님")
-                    if strict_cgv:
-                        br.close()
-                        raise
-        br.close()
-    return out
+    current = {}
+    for result in scan_iter(previous):
+        current.update(result.schedules)
+        if strict_cgv and result.brand == "CGV" and result.errors:
+            raise RuntimeError("CGV scan incomplete: " + "; ".join(result.errors))
+    return current
 
 
 def main():

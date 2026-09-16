@@ -11,7 +11,7 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: cinema-watch
+  group: cinema-${{ inputs.test_push && 'test' || 'watch' }}
   cancel-in-progress: false
 jobs:
   watch:
@@ -23,6 +23,7 @@ jobs:
       TZ: Asia/Seoul
       CHROME_CHANNEL: chromium
       CGV_PROFILE: /tmp/chiikawa-cgv
+      PYTHONUNBUFFERED: '1'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -49,6 +50,18 @@ jobs:
         if: steps.dates.outputs.active == 'true'
         run: |
           pip install -r requirements-cloud.txt
+      - name: Cache browser
+        if: steps.dates.outputs.active == 'true' && inputs.test_push != true
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements-cloud.txt') }}
+      - name: Verify alert recovery
+        if: steps.dates.outputs.active == 'true'
+        run: python -m unittest -q test_watch test_cloud_watch test_desktop_alerts test_alert_store test_cinema_scan
+      - name: Install browser
+        if: steps.dates.outputs.active == 'true' && inputs.test_push != true
+        run: |
           python -m playwright install --with-deps chromium
       - name: Scan and send notifications
         if: steps.dates.outputs.active == 'true'

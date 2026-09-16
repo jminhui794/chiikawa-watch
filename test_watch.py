@@ -45,13 +45,11 @@ class CgvFailureTests(unittest.TestCase):
         self.assertEqual(pg.evaluate.call_count, count)
 
     def test_scan_retains_cgv_baseline_on_failure(self):
+        from cinema_scan import Result
         previous = {"CGV|강남|20260919|12:00|1관": {"left": 0},
                     "롯데|old": {"left": 2}}
-        with patch.object(watch, "sync_playwright"), \
-                patch.object(watch, "megabox"), patch.object(watch, "lotte"), \
-                patch.object(watch, "cineq"), \
-                patch.object(watch, "cgv", side_effect=RuntimeError("HTTP 401")) as failed:
-            failed.__name__ = "cgv"
+        with patch.object(watch, "scan_iter", return_value=[Result("CGV", {
+                k: v for k, v in previous.items() if k.startswith("CGV|")}, ["HTTP 401"])]):
             self.assertEqual(watch.scan(previous),
                              {k: v for k, v in previous.items() if k.startswith("CGV|")})
 
