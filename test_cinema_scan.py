@@ -31,16 +31,34 @@ class ScopeRecoveryTests(unittest.TestCase):
         self.assertEqual(len(seats), 1)
 
     def test_invalid_and_missing_responses_never_erase_existing_scope(self):
-        job = {"scope": "메가박스|(전지점)|20990919|"}
+        job = {"scope": "메가박스|(전지점)|20990919|", "date": "20990919"}
         previous = {job["scope"] + "편성됨|-": {"left": None}}
         for responses in ([], [{"s": 200, "b": "<html>blocked</html>"}],
                           [{"s": 200, "b": '{}'}], [{"s": 403, "b": ""}]):
             result = cinema_scan.merge_responses("메가박스", [job], responses, previous)
             self.assertEqual(result.schedules, previous)
             self.assertTrue(result.errors)
-        result = cinema_scan.merge_responses("메가박스", [job], [{"s": 200, "b": '{"movieList": []}'}], previous)
+        result = cinema_scan.merge_responses("메가박스", [job], [{"s": 200, "b": json.dumps({
+            "movieList": [], "statCd": 0, "paramMap": {"playDe": job["date"]}})}], previous)
         self.assertEqual(result.schedules, {})
         self.assertEqual(result.errors, [])
+
+    def test_megabox_movie_listing_without_date_availability_does_not_alert(self):
+        job = {"scope": "메가박스|(전지점)|20260930|", "date": "20260930"}
+        movie = {"movieNo": "26048500", "movieNm": "극장판 치이카와: 인어 섬의 비밀", "formAt": "N"}
+        data = {"statCd": 0, "paramMap": {"playDe": "20260930"}, "movieList": [movie]}
+        def parse():
+            return cinema_scan.parse("메가박스", job, {"s": 200, "b": json.dumps(data)})
+        self.assertEqual(parse(), {})
+        movie["formAt"] = "Y"
+        self.assertEqual(len(parse()), 1)
+        movie["formAt"] = None
+        with self.assertRaises(ValueError):
+            parse()
+        movie["formAt"] = "Y"
+        data["paramMap"]["playDe"] = "20260919"
+        with self.assertRaises(ValueError):
+            parse()
 
     def test_brands_start_together_and_fast_results_do_not_wait_for_slow_brand(self):
         started = threading.Barrier(4)

@@ -100,7 +100,9 @@ def megabox(pg, out):
             d = json.loads(txt)
         except Exception:
             continue
-        hit = any(KEY in str(m.get("movieNm", "")) for m in (d.get("movieList") or []))
+        hit = (d.get("statCd") == 0 and d.get("paramMap", {}).get("playDe") == ymd
+               and any(str(m.get("movieNo")) == mov and m.get("formAt") == "Y"
+                       for m in (d.get("movieList") or [])))
         if hit:
             out[f"메가박스|(전지점)|{ymd}|편성됨|-"] = {
                 "left": None, "total": None,

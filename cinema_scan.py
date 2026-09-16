@@ -121,10 +121,17 @@ def parse(brand, job, response):
             result[job["scope"] + f"{item['StartTime']}|{item['ScreenNameKR']}"] = {
                 "left": total - booked, "total": total, "url": URLS[brand]}
     elif brand == "메가박스":
+        if data.get("statCd") != 0 or data.get("paramMap", {}).get("playDe") != job["date"]:
+            raise ValueError("Megabox failed or returned a different date")
         items = data.get("movieList")
         if not isinstance(items, list) or any(not isinstance(item, dict) or "movieNm" not in item for item in items):
             raise ValueError("invalid Megabox movie list")
-        if any(watch.KEY in str(item["movieNm"]) for item in items):
+        selected = [item for item in items if str(item.get("movieNo")) == watch.CFG["megabox"]["movieNo"]]
+        if any(item.get("formAt") not in ("Y", "N") for item in selected):
+            raise ValueError("unknown Megabox booking availability")
+        # movieList also contains unreleased/unavailable films. Only formAt=Y
+        # marks this movie selectable on the requested date (not a seat count).
+        if any(item["formAt"] == "Y" for item in selected):
             result[job["scope"] + "편성됨|-"] = {"left": None, "total": None, "url": URLS[brand]}
     return result
 
