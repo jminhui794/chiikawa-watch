@@ -10,3 +10,5 @@ state.json
 .cgv-cloud-check/
 .push-subscription.json
 .env
+.desktop-alerts.json
+.desktop-alerts.json.tmp

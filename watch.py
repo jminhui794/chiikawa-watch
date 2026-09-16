@@ -72,9 +72,12 @@ def toast(title, lines, url=None, actions=None):
                            capture_output=True, timeout=30)
         if r.returncode != 0:
             print("  [toast 오류]", r.stderr.decode("cp949", "replace")[:200])
+            return False
     except Exception as e:
         print("  [toast 실패]", e)
+        return False
     print(f"  *** {title} | {body[:120]}")
+    return True
 
 
 def megabox(pg, out):
@@ -292,46 +295,9 @@ def main():
                 context.close()
         return
     _register_app_id()
-    once = "--once" in sys.argv
-    prev = {}
-    if os.path.exists(STATE_F):
-        try:
-            prev = json.load(open(STATE_F, encoding="utf-8"))
-        except Exception:
-            prev = {}
-    first_run = not prev
-
-    while True:
-        ts = datetime.datetime.now().strftime("%m-%d %H:%M:%S")
-        cur = scan(prev)
-        print(f"[{ts}] 감지 회차 {len(cur)}건")
-
-        new_sh, seats = changes(prev, cur)
-
-        def fire(title, hits):
-            """본문 클릭 = 첫 항목 예매페이지, 버튼 = 체인별 바로가기"""
-            lines = [t for t, _, _ in hits[:6]]
-            acts, seen_ch = [], set()
-            for _, ch, u in hits:
-                if u and ch not in seen_ch:
-                    seen_ch.add(ch)
-                    acts.append((f"{ch} 예매", u))
-            toast(title, lines, url=(acts[0][1] if acts else None), actions=acts)
-
-        if new_sh and not first_run:
-            fire("🎬 치이카와 새 회차 오픈!", new_sh)
-        if seats:
-            fire("🎟️ 치이카와 취소표 발생!", seats)
-        if first_run:
-            print(f"  최초 실행 - 기준선 저장 ({len(cur)}건), 알림 생략")
-        elif not new_sh and not seats:
-            print("  변화 없음")
-
-        prev, first_run = cur, False
-        json.dump(cur, open(STATE_F, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-        if once:
-            break
-        time.sleep(CFG["poll_seconds"])
+    # One cloud detector sends phone pushes and publishes the same desktop events.
+    from desktop_alerts import follow
+    follow(once="--once" in sys.argv)
 
 
 if __name__ == "__main__":

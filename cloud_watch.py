@@ -3,6 +3,8 @@ import base64
 import json
 import os
 import sys
+import time
+import uuid
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from urllib.parse import urlsplit
@@ -78,7 +80,9 @@ def run():
                   "https://cgv.co.kr/cnm/movieBook/movie", "chiikawa-test")
         return
     saved = github()
-    previous = json.loads(base64.b64decode(saved["content"])) if saved else {}
+    document = json.loads(base64.b64decode(saved["content"])) if saved else {}
+    previous = document.get("schedules", {}) if document.get("schema") == 2 else document
+    events = list(document.get("events", [])) if document.get("schema") == 2 else []
     current = watch.scan(previous, strict_cgv=True)
     openings, cancellations = watch.changes(previous, current)
     for title, hits, tag in (("치이카와 새 회차 오픈", openings, "chiikawa-open"),
@@ -90,9 +94,15 @@ def run():
             for index, subscription in enumerate(subscriptions):
                 filtered = filter_hits(hits, subscription, primary_device=index == 0)
                 if filtered:
-                    send_push(title, "\n".join(hit[0] for hit in filtered[:6]), filtered[0][2], tag, target=subscription)
-    encoded = base64.b64encode(json.dumps(current, ensure_ascii=False).encode()).decode()
-    if current != previous or saved is None:
+                    body = "\n".join(hit[0] for hit in filtered[:6])
+                    send_push(title, body, filtered[0][2], tag, target=subscription)
+                    if index == 0:
+                        events.append({"id": uuid.uuid4().hex, "created_at": time.time(),
+                                       "title": title, "body": body, "url": filtered[0][2], "tag": tag})
+    events = [event for event in events if event["created_at"] >= time.time() - 7 * 86400][-500:]
+    updated = {"schema": 2, "schedules": current, "events": events}
+    encoded = base64.b64encode(json.dumps(updated, ensure_ascii=False).encode()).decode()
+    if updated != document or saved is None:
         payload = {"message": "Update cinema availability", "content": encoded}
         if saved:
             payload["sha"] = saved["sha"]
